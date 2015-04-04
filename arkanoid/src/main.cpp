@@ -11,34 +11,100 @@ const auto screen_width = 640;
 const auto screen_height = 480;
 const auto screen_title = "Arkanoid";
 
+struct vec2
+{
+  double x;
+  double y;
+
+  vec2& operator+=(vec2 vec)
+  {
+    x += vec.x;
+    y += vec.y;
+    return *this;
+  }
+};
+
+vec2 operator-(vec2 vec) { return{ -vec.x, -vec.y }; }
+vec2 operator*(vec2 vec, double factor) { return{ vec.x * factor, vec.y * factor }; }
+vec2 operator*(double factor, vec2 vec) { return vec * factor; }
+vec2 operator+(vec2 lhs, vec2 rhs) { return{ lhs.x + rhs.x, lhs.y + rhs.y }; }
+
 struct block
 {
   SDL_Rect shape;
 
   void draw(SDL_Renderer *renderer)
   {
+    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0xFF, 0x00);
     SDL_RenderFillRect(renderer, &shape);
   }
 };
 
 struct ball
 {
-  double x;
-  double y;
-  int    width;
-  int    height;
-  double velocity_x; // Pixels per second.
-  double velocity_y; // Pixels per second.
+  vec2 position;
+  vec2 velocity; // Pixels per second.
+  vec2 acceleration;
+
+  int width;
+  int height;
 
   void update(std::chrono::milliseconds elapsed)
   {
-    x += velocity_x / 1000 * elapsed.count();
-    y += velocity_y / 1000 * elapsed.count();
+    const auto elapsed_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(elapsed).count();
+    velocity += acceleration * elapsed_seconds;
+    position += velocity * elapsed_seconds;
   }
 
   void draw(SDL_Renderer *renderer)
   {
-    SDL_Rect rect = { (int)x, (int)y, width, height };
+    const SDL_Rect rect = { (int)position.x, (int)position.y, width, height };
+
+    SDL_SetRenderDrawColor(renderer, 0x55, 0x55, 0x55, SDL_ALPHA_OPAQUE);
+    SDL_RenderFillRect(renderer, &rect);
+  }
+};
+
+struct player_pallet
+{
+  vec2 position;
+  vec2 velocity; // Pixels per second.
+
+  int    width;
+  int    height;
+
+  static const auto move_speed = 500;
+
+  void on_keydown(SDL_Keysym key)
+  {
+    switch (key.sym)
+    {
+      case SDLK_LEFT: velocity.x = -move_speed; break;
+      case SDLK_RIGHT: velocity.x = move_speed; break;
+    }
+  }
+
+  void on_keyup(SDL_Keysym key)
+  {
+    switch (key.sym)
+    {
+      case SDLK_LEFT:
+      case SDLK_RIGHT:
+        velocity.x = 0;
+    }
+  }
+
+  void update(std::chrono::milliseconds elapsed)
+  {
+    const auto elapsed_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(elapsed).count();
+    position += velocity * elapsed_seconds;
+  }
+
+  void draw(SDL_Renderer *renderer)
+  {
+    const SDL_Rect rect = { (int)position.x, (int)position.y, width, height };
+
+    SDL_SetRenderDrawColor(renderer, 0x00, 0xFF, 0x00, SDL_ALPHA_OPAQUE);
     SDL_RenderFillRect(renderer, &rect);
   }
 };
@@ -65,6 +131,11 @@ std::vector<block> make_blocks(SDL_Rect blocks_area, int num_blocks_x, int num_b
   return blocks;
 }
 
+template<typename T> T clamp(T value, T min, T max)
+{
+  return std::max(min, std::min(max, value));
+}
+
 }
 
 int main(int, char *[])
@@ -81,10 +152,10 @@ int main(int, char *[])
   SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, 0);
   if (renderer == NULL) { return 2; }
 
-  auto blocks = make_blocks({10, 10, screen_width - 20, (screen_height - 10) / 4}, 4, 4, 2);
-  block player = { {2 * screen_width / 5, screen_height - 10, screen_width / 5, 8} };
+  auto blocks = make_blocks({ 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 4, 4, 2);
+  player_pallet player = { { 2 * screen_width / 5, screen_height - 10 }, { 0, 0 }, screen_width / 5, 8 };
 
-  ball b = { screen_width / 2 + 5, screen_height - 20, 10, 10, 0, -50 };
+  ball b = { { screen_width / 2 + 5, screen_height - 20 }, { 50, -50 }, { 5, -5 }, 10, 10 };
 
   auto prev_time = std::chrono::high_resolution_clock::now();
 
@@ -98,11 +169,11 @@ int main(int, char *[])
       {
         case SDL_QUIT: must_close = true; break;
         case SDL_KEYDOWN:
-          switch (e.key.keysym.sym)
-          {
-            case SDLK_LEFT: player.shape.x -= screen_width / 50; break;
-            case SDLK_RIGHT: player.shape.x += screen_width / 50; break;
-          }
+          player.on_keydown(e.key.keysym);
+          break;
+        case SDL_KEYUP:
+          player.on_keyup(e.key.keysym);
+          break;
       }
     }
 
@@ -111,29 +182,40 @@ int main(int, char *[])
     prev_time = curr_time;
 
     b.update(elapsed);
+    player.update(elapsed);
 
-    auto new_end = std::remove_if(std::begin(blocks), std::end(blocks), [b](block blk) -> bool {
-      if (blk.shape.x > b.x + b.width) { return false; }
-      if (blk.shape.x + blk.shape.w < b.x) { return false; }
-      if (blk.shape.y > b.y + b.height) { return false; }
-      if (blk.shape.y + blk.shape.h < b.y) { return false; }
+    if (b.position.x > screen_width || b.position.x < 0)
+    {
+      b.position.x = clamp(b.position.x, 0.0, (double)screen_width);
+      b.velocity.x = -b.velocity.x;
+      b.acceleration.x = -b.acceleration.x;
+    }
+    if (b.position.y > screen_height || b.position.y < 0)
+    {
+      b.position.y = clamp(b.position.y, 0.0, (double)screen_height);
+      b.velocity.y = -b.velocity.y;
+      b.acceleration.y = -b.acceleration.y;
+    }
 
+    auto new_end = std::remove_if(std::begin(blocks), std::end(blocks), [&b](block blk) -> bool {
+      if (blk.shape.x > b.position.x + b.width) { return false; }
+      if (blk.shape.x + blk.shape.w < b.position.x) { return false; }
+      if (blk.shape.y > b.position.y + b.height) { return false; }
+      if (blk.shape.y + blk.shape.h < b.position.y) { return false; }
+
+      b.velocity = -b.velocity;
+      b.acceleration = -b.acceleration;
       return true;
     });
 
     blocks.erase(new_end, std::end(blocks));
 
-    // Clear screen
-    SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0x00);
-    SDL_RenderFillRect(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(renderer);
 
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0xFF, 0x00);
-    for (auto&& block : blocks)
-    {
-      block.draw(renderer);
-    }
+    for (auto&& block : blocks) { block.draw(renderer); }
 
-    SDL_RenderFillRect(renderer, &player.shape);
+    player.draw(renderer);
     b.draw(renderer);
 
     SDL_RenderPresent(renderer);
