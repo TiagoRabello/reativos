@@ -154,23 +154,24 @@ int main(int, char *[])
   int err = SDL_Init(SDL_INIT_EVERYTHING);
   if (err != 0) { return err; }
 
-  SDL_Window* window = SDL_CreateWindow("Arkanoid",
-                                        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                        640, 480, SDL_WINDOW_SHOWN);
-  if (window == NULL) { return 1; }
+  std::unique_ptr<SDL_Window, void(*)(SDL_Window*)> window = {
+    SDL_CreateWindow("Arkanoid", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_SHOWN)
+    , SDL_DestroyWindow
+  };
+  if (window == nullptr) { return 1; }
 
-  SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, 0);
-  if (renderer == NULL) { return 2; }
+  std::unique_ptr<SDL_Renderer, void(*)(SDL_Renderer*)> renderer = { SDL_CreateRenderer(window.get(), -1, 0), SDL_DestroyRenderer };
+  if (renderer == nullptr) { return 2; }
 
-  auto player_texture = load_texture(renderer, "assets/player_sprite.bmp");
+  auto player_texture = load_texture(renderer.get(), "assets/player_sprite.bmp");
 
-  auto blocks = make_blocks(renderer, { game_area.x + 10, game_area.y + 10, game_area.w - 20, (game_area.h - 10) / 4 }, 10, 6, 0);
+  auto blocks = make_blocks(renderer.get(), { game_area.x + 10, game_area.y + 10, game_area.w - 20, (game_area.h - 10) / 4 }, 10, 6, 0);
   player_pallet player;
-  player.shape = { { game_area.x + 2 * game_area.w / 5, game_area.y + game_area.h - 10 }, game_area.w / 5, 8 };
+  player.shape = { { game_area.x + 2 * game_area.w / 5, game_area.y + game_area.h - 22 }, 78, 18 };
   player.velocity = { 0.0, 0.0 };
   player.acceleration = { 0.0, 0.0 };
   player.texture = player_texture;
-  player.texture_area = { 0, 0, 32, 8 };
+  player.texture_area = { 0, 0, 52, 12 };
 
   ball b = { { { game_area.x + game_area.w / 2 + 5, game_area.y + game_area.h - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture, { 0, 0, 32, 8 } };
   const auto original_ball = b;
@@ -253,21 +254,19 @@ int main(int, char *[])
     auto new_end = std::remove_if(std::begin(blocks), std::end(blocks), [](const block& b) { return b.durability == 0; });
     blocks.erase(new_end, std::end(blocks));
 
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
-    SDL_RenderClear(renderer);
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0xBB, SDL_ALPHA_OPAQUE);
-    SDL_RenderFillRect(renderer, &game_area);
+    SDL_SetRenderDrawColor(renderer.get(), 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(renderer.get());
+    SDL_SetRenderDrawColor(renderer.get(), 0x00, 0x00, 0xBB, SDL_ALPHA_OPAQUE);
+    SDL_RenderFillRect(renderer.get(), &game_area);
 
-    for (auto&& block : blocks) { block.draw(renderer); }
+    for (auto&& block : blocks) { block.draw(renderer.get()); }
 
-    player.draw(renderer);
-    b.draw(renderer);
+    player.draw(renderer.get());
+    b.draw(renderer.get());
 
-    SDL_RenderPresent(renderer);
+    SDL_RenderPresent(renderer.get());
   }
 
-  SDL_DestroyRenderer(renderer);
-  SDL_DestroyWindow(window);
   SDL_Quit();
 
   return 0;
