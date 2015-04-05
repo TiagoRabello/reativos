@@ -6,10 +6,9 @@
 #include <memory>
 #include <vector>
 
-const auto screen_width = 640;
-const auto screen_height = 480;
-const auto screen_title = "Arkanoid";
+const SDL_Rect game_area = { 120, 0, 400, 480 };
 const auto move_speed = 500;
+auto lifes = 3;
 
 template<typename T> T clamp(T value, T min, T max)
 {
@@ -34,7 +33,6 @@ struct aabb
   int width;
   int height;
 };
-
 double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
 {
   const vec2 box1_wh = { box1.width, box1.height };
@@ -49,22 +47,11 @@ double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
   vec2 entry = { -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity() };
   vec2 exit = { std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity() };
 
-  if (velocity.x != 0.0f)
-  {
-    entry.x = inv_entry.x / velocity.x;
-    exit.x = inv_exit.x / velocity.x;
-  }
-
-  if (velocity.y != 0.0f)
-  {
-    entry.y = inv_entry.y / velocity.y;
-    exit.y = inv_exit.y / velocity.y;
-  }
+  if (velocity.x != 0.0f) { entry.x = inv_entry.x / velocity.x; exit.x = inv_exit.x / velocity.x; }
+  if (velocity.y != 0.0f) { entry.y = inv_entry.y / velocity.y; exit.y = inv_exit.y / velocity.y; }
 
   auto entry_time = std::max(entry.x, entry.y);
   auto exit_time = std::min(exit.x, exit.y);
-
-  normal = { 0.0, 0.0 };
 
   if (entry_time > exit_time || entry.x < 0.0f && entry.y < 0.0f || entry.x > 1.0f || entry.y > 1.0f)
   {
@@ -72,13 +59,14 @@ double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
   }
   else // if there was a collision
   {
+    normal = { 0.0, 0.0 };
+
     if (entry.x > entry.y) { normal.x = (inv_entry.x < 0.0f) ? 1.0f : -1.0f; }
     else                   { normal.y = (inv_entry.y < 0.0f) ? 1.0f : -1.0f; }
 
     return entry_time;
   }
 }
-
 std::shared_ptr<SDL_Texture> load_texture(SDL_Renderer *renderer, const char *file)
 {
   auto surface = SDL_LoadBMP(file);
@@ -87,7 +75,6 @@ std::shared_ptr<SDL_Texture> load_texture(SDL_Renderer *renderer, const char *fi
 
   return std::shared_ptr<SDL_Texture>{ texture, SDL_DestroyTexture };
 }
-
 struct moveable_box
 {
   aabb shape;
@@ -101,22 +88,25 @@ struct moveable_box
     velocity = velocity + acceleration * elapsed_seconds;
     shape.position = shape.position + velocity * elapsed_seconds;
   }
-
   void draw(SDL_Renderer *renderer)
   {
     const SDL_Rect rect = { (int)shape.position.x, (int)shape.position.y, shape.width, shape.height };
     SDL_RenderCopy(renderer, texture.get(), nullptr, &rect);
   }
 };
-
 using ball = moveable_box;
-using player_pallet = moveable_box;
-
+struct player_pallet : moveable_box
+{
+  void update(std::chrono::milliseconds elapsed)
+  {
+    moveable_box::update(elapsed);
+    shape.position.x = clamp(shape.position.x, (double)game_area.x , (double)game_area.w + game_area.x - shape.width);
+  }
+};
 struct block : moveable_box
 {
   int durability;
 };
-
 std::vector<block> make_blocks(SDL_Renderer *renderer, SDL_Rect blocks_area, int num_blocks_x, int num_blocks_y, int block_padding)
 {
   std::vector<block> blocks;
@@ -147,14 +137,8 @@ std::vector<block> make_blocks(SDL_Renderer *renderer, SDL_Rect blocks_area, int
 
   return blocks;
 }
-
-bool process_collision(ball &b, aabb ball_prev, aabb obstacle, vec2 delta_position)
+void process_collision(ball &b, vec2 delta_position, double t, vec2 normal)
 {
-  vec2 normal;
-  auto t = sweep_aabb(ball_prev, obstacle, delta_position, normal);
-
-  if (t == 1.0) { return false; }
-
   const auto remaining_time = 1.0 - t;
   b.shape.position = b.shape.position - (delta_position * remaining_time);
 
@@ -162,19 +146,15 @@ bool process_collision(ball &b, aabb ball_prev, aabb obstacle, vec2 delta_positi
   if (std::abs(normal.y) > 0.0) { b.velocity.y = -b.velocity.y; b.acceleration.y = -b.acceleration.y; delta_position.y = -delta_position.y; }
 
   b.shape.position = b.shape.position + (delta_position * remaining_time);
-
-  return true;
 }
-
 int main(int, char *[])
 {
   int err = SDL_Init(SDL_INIT_EVERYTHING);
   if (err != 0) { return err; }
 
-  SDL_Window* window = SDL_CreateWindow(screen_title,
+  SDL_Window* window = SDL_CreateWindow("Arkanoid",
                                         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                        screen_width, screen_height, SDL_WINDOW_SHOWN
-                                        );
+                                        640, 480, SDL_WINDOW_SHOWN);
   if (window == NULL) { return 1; }
 
   SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, 0);
@@ -182,10 +162,14 @@ int main(int, char *[])
 
   auto player_texture = load_texture(renderer, "assets/player_sprite.bmp");
 
-  auto blocks = make_blocks(renderer, { 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 10, 5, 0);
-  player_pallet player = { { { 2 * screen_width / 5, screen_height - 10 }, screen_width / 5, 8 }, { 0.0, 0.0 }, { 0.0, 0.0 }, player_texture };
+  auto blocks = make_blocks(renderer, { game_area.x + 10, game_area.y + 10, game_area.w - 20, (game_area.h - 10) / 4 }, 10, 5, 0);
+  player_pallet player;
+  player.shape = { { game_area.x + 2 * game_area.w / 5, game_area.y + game_area.h - 10 }, game_area.w / 5, 8 };
+  player.velocity = { 0.0, 0.0 };
+  player.acceleration = { 0.0, 0.0 };
+  player.texture = player_texture;
 
-  ball b = { { { screen_width / 2 + 5, screen_height - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture };
+  ball b = { { { game_area.x + game_area.w / 2 + 5, game_area.y + game_area.h - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture };
 
   auto prev_time = std::chrono::high_resolution_clock::now();
 
@@ -203,7 +187,7 @@ int main(int, char *[])
       {
         if (e.key.repeat) { continue; }
 
-        if (e.key.keysym.sym == SDLK_LEFT) { player.velocity.x += (e.type == SDL_KEYDOWN) ? -move_speed : move_speed; }
+             if (e.key.keysym.sym == SDLK_LEFT) { player.velocity.x += (e.type == SDL_KEYDOWN) ? -move_speed : move_speed; }
         else if (e.key.keysym.sym == SDLK_RIGHT) { player.velocity.x += (e.type == SDL_KEYDOWN) ? move_speed : -move_speed; }
       }
     }
@@ -213,36 +197,64 @@ int main(int, char *[])
     prev_time = curr_time;
 
     const auto ball_prev = b.shape;
+    player.update(elapsed);
     b.update(elapsed);
     auto delta_position = b.shape.position - ball_prev.position;
 
-    if (b.shape.position.x > screen_width || b.shape.position.x < 0)
+    if (b.shape.position.x > game_area.w + game_area.x || b.shape.position.x < game_area.x)
     {
-      b.shape.position.x = clamp(b.shape.position.x, 0.0, (double)screen_width);
+      b.shape.position.x = clamp(b.shape.position.x, (double)game_area.x, (double)game_area.w + game_area.x);
       b.velocity.x = -b.velocity.x;
       b.acceleration.x = -b.acceleration.x;
     }
-    if (b.shape.position.y > screen_height || b.shape.position.y < 0)
+    if (b.shape.position.y > game_area.h + game_area.y)
     {
-      b.shape.position.y = clamp(b.shape.position.y, 0.0, (double)screen_height);
+      --lifes;
+      b = { { { game_area.x + game_area.w / 2 + 5, game_area.y + game_area.h - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture };
+
+      if (lifes == 0) { break; }
+    }
+    if (b.shape.position.y < game_area.y)
+    {
+      b.shape.position.y = game_area.y;
       b.velocity.y = -b.velocity.y;
       b.acceleration.y = -b.acceleration.y;
     }
 
-    player.update(elapsed);
-
+    vec2 closest_normal = {};
+    double closest_t = 1.0;
+    block *closest_block = nullptr;
     for (auto&& block : blocks)
     {
-      if (process_collision(b, ball_prev, block.shape, delta_position)) { --block.durability; }
+      auto t = sweep_aabb(ball_prev, block.shape, delta_position * closest_t, closest_normal);
+      if (t < closest_t)
+      {
+        closest_t = t;
+        closest_block = &block;
+      }
+    }
+    {
+      auto t = sweep_aabb(ball_prev, player.shape, delta_position * closest_t, closest_normal);
+      if (t < closest_t)
+      {
+        closest_t = t;
+        closest_block = nullptr;
+      }
+    }
+
+    if (closest_t != 1.0)
+    {
+      process_collision(b, delta_position, closest_t, closest_normal);
+      if (closest_block != nullptr) { --(closest_block->durability); }
     }
 
     auto new_end = std::remove_if(std::begin(blocks), std::end(blocks), [](const block& b) { return b.durability == 0; });
     blocks.erase(new_end, std::end(blocks));
 
-    process_collision(b, ball_prev, player.shape, delta_position);
-
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0xBB, SDL_ALPHA_OPAQUE);
+    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(renderer);
+    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0xBB, SDL_ALPHA_OPAQUE);
+    SDL_RenderFillRect(renderer, &game_area);
 
     for (auto&& block : blocks) { block.draw(renderer); }
 
