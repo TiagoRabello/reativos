@@ -79,15 +79,10 @@ double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
   }
 }
 
-#include <cassert>
-
 std::shared_ptr<SDL_Texture> load_texture(SDL_Renderer *renderer, const char *file)
 {
   auto surface = SDL_LoadBMP(file);
   auto texture = SDL_CreateTextureFromSurface(renderer, surface);
-
-  assert(surface && texture);
-
   SDL_FreeSurface(surface);
 
   return std::shared_ptr<SDL_Texture>{ texture, SDL_DestroyTexture };
@@ -153,6 +148,24 @@ std::vector<block> make_blocks(SDL_Renderer *renderer, SDL_Rect blocks_area, int
   return blocks;
 }
 
+bool process_collision(ball &b, aabb ball_prev, aabb obstacle, vec2 delta_position)
+{
+  vec2 normal;
+  auto t = sweep_aabb(ball_prev, obstacle, delta_position, normal);
+
+  if (t == 1.0) { return false; }
+
+  const auto remaining_time = 1.0 - t;
+  b.shape.position = b.shape.position - (delta_position * remaining_time);
+
+  if (std::abs(normal.x) > 0.0) { b.velocity.x = -b.velocity.x; b.acceleration.x = -b.acceleration.x; delta_position.x = -delta_position.x; }
+  if (std::abs(normal.y) > 0.0) { b.velocity.y = -b.velocity.y; b.acceleration.y = -b.acceleration.y; delta_position.y = -delta_position.y; }
+
+  b.shape.position = b.shape.position + (delta_position * remaining_time);
+
+  return true;
+}
+
 int main(int, char *[])
 {
   int err = SDL_Init(SDL_INIT_EVERYTHING);
@@ -169,10 +182,10 @@ int main(int, char *[])
 
   auto player_texture = load_texture(renderer, "assets/player_sprite.bmp");
 
-  auto blocks = make_blocks(renderer, { 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 6, 4, 2);
+  auto blocks = make_blocks(renderer, { 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 10, 5, 0);
   player_pallet player = { { { 2 * screen_width / 5, screen_height - 10 }, screen_width / 5, 8 }, { 0.0, 0.0 }, { 0.0, 0.0 }, player_texture };
 
-  ball b = { { { screen_width / 2 + 5, screen_height - 20 }, 10, 10 }, { 50, -50 }, { 5, -5 }, player_texture };
+  ball b = { { { screen_width / 2 + 5, screen_height - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture };
 
   auto prev_time = std::chrono::high_resolution_clock::now();
 
@@ -220,42 +233,15 @@ int main(int, char *[])
 
     for (auto&& block : blocks)
     {
-      vec2 normal;
-      auto t = sweep_aabb(ball_prev, block.shape, delta_position, normal);
-
-      if (t == 1.0) { continue; }
-
-      --block.durability;
-
-      const auto remaining_time = 1.0 - t;
-      b.shape.position = b.shape.position - (delta_position * remaining_time);
-
-      if (std::abs(normal.x) > 0.0) { b.velocity.x = -b.velocity.x; b.acceleration.x = -b.acceleration.x; delta_position.x = -delta_position.x; }
-      if (std::abs(normal.y) > 0.0) { b.velocity.y = -b.velocity.y; b.acceleration.y = -b.acceleration.y; delta_position.y = -delta_position.y; }
-
-      b.shape.position = b.shape.position + (delta_position * remaining_time);
+      if (process_collision(b, ball_prev, block.shape, delta_position)) { --block.durability; }
     }
 
     auto new_end = std::remove_if(std::begin(blocks), std::end(blocks), [](const block& b) { return b.durability == 0; });
     blocks.erase(new_end, std::end(blocks));
 
-    {
-      vec2 normal;
-      auto t = sweep_aabb(ball_prev, player.shape, delta_position, normal);
+    process_collision(b, ball_prev, player.shape, delta_position);
 
-      if (t != 1.0)
-      {
-        const auto remaining_time = 1.0 - t;
-        b.shape.position = b.shape.position - (delta_position * remaining_time);
-
-        if (std::abs(normal.x) > 0.0) { b.velocity.x = -b.velocity.x; b.acceleration.x = -b.acceleration.x; delta_position.x = -delta_position.x; }
-        if (std::abs(normal.y) > 0.0) { b.velocity.y = -b.velocity.y; b.acceleration.y = -b.acceleration.y; delta_position.y = -delta_position.y; }
-
-        b.shape.position = b.shape.position + (delta_position * remaining_time);
-      }
-    }
-
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
+    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0xBB, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(renderer);
 
     for (auto&& block : blocks) { block.draw(renderer); }
