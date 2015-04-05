@@ -5,9 +5,6 @@
 #include <limits>
 #include <vector>
 
-namespace
-{
-
 const auto screen_width = 640;
 const auto screen_height = 480;
 const auto screen_title = "Arkanoid";
@@ -102,9 +99,13 @@ struct moveable_box
   }
 };
 
-using block = moveable_box;
 using ball = moveable_box;
 using player_pallet = moveable_box;
+
+struct block : moveable_box
+{
+  int durability;
+};
 
 std::vector<block> make_blocks(SDL_Rect blocks_area, int num_blocks_x, int num_blocks_y, int block_padding)
 {
@@ -119,15 +120,19 @@ std::vector<block> make_blocks(SDL_Rect blocks_area, int num_blocks_x, int num_b
     auto pos_x = blocks_area.x;
     for (auto i = 0; i < num_blocks_x; ++i)
     {
-      blocks.push_back({ { { pos_x + block_padding, pos_y + block_padding }, block_width, block_height }, { 0.0, 0.0 }, { 0.0, 0.0 } });
+      block b;
+      b.shape = { { pos_x + block_padding, pos_y + block_padding }, block_width, block_height };
+      b.velocity = { 0.0, 0.0 };
+      b.acceleration = { 0.0, 0.0 };
+      b.durability = 1;
+
+      blocks.push_back(b);
       pos_x += block_width + (2 * block_padding);
     }
     pos_y += block_height + (2 * block_padding);
   }
 
   return blocks;
-}
-
 }
 
 int main(int, char *[])
@@ -144,7 +149,7 @@ int main(int, char *[])
   SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, 0);
   if (renderer == NULL) { return 2; }
 
-  auto blocks = make_blocks({ 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 4, 4, 2);
+  auto blocks = make_blocks({ 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 6, 4, 2);
   player_pallet player = { { { 2 * screen_width / 5, screen_height - 10 }, screen_width / 5, 8 }, { 0.0, 0.0 }, { 0.0, 0.0 } };
 
   ball b = { { { screen_width / 2 + 5, screen_height - 20 }, 10, 10 }, { 50, -50 }, { 5, -5 } };
@@ -170,13 +175,13 @@ int main(int, char *[])
       }
     }
 
-    auto curr_time = std::chrono::high_resolution_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - prev_time);
+    const auto curr_time = std::chrono::high_resolution_clock::now();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - prev_time);
     prev_time = curr_time;
 
     const auto ball_prev = b.shape;
     b.update(elapsed);
-    player.update(elapsed);
+    auto delta_position = b.shape.position - ball_prev.position;
 
     if (b.shape.position.x > screen_width || b.shape.position.x < 0)
     {
@@ -191,23 +196,44 @@ int main(int, char *[])
       b.acceleration.y = -b.acceleration.y;
     }
 
-    auto new_end = std::remove_if(std::begin(blocks), std::end(blocks), [&b, ball_prev, elapsed](block blk) -> bool {
+    player.update(elapsed);
+
+    for (auto&& block : blocks)
+    {
       vec2 normal;
-      const auto elapsed_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(elapsed).count();
-      auto t = sweep_aabb(ball_prev, blk.shape, b.velocity * elapsed_seconds, normal);
+      auto t = sweep_aabb(ball_prev, block.shape, delta_position, normal);
+
+      if (t == 1.0) { continue; }
+
+      --block.durability;
 
       const auto remaining_time = 1.0 - t;
-      b.shape.position = b.shape.position - (b.velocity * elapsed_seconds * remaining_time);
+      b.shape.position = b.shape.position - (delta_position * remaining_time);
 
-      if (std::abs(normal.x) > 0.0) { b.velocity.x = -b.velocity.x; b.acceleration.x = -b.acceleration.x; }
-      if (std::abs(normal.y) > 0.0) { b.velocity.y = -b.velocity.y; b.acceleration.y = -b.acceleration.y; }
+      if (std::abs(normal.x) > 0.0) { b.velocity.x = -b.velocity.x; b.acceleration.x = -b.acceleration.x; delta_position.x = -delta_position.x; }
+      if (std::abs(normal.y) > 0.0) { b.velocity.y = -b.velocity.y; b.acceleration.y = -b.acceleration.y; delta_position.y = -delta_position.y; }
 
-      b.shape.position = b.shape.position + (b.velocity * elapsed_seconds * remaining_time);
+      b.shape.position = b.shape.position + (delta_position * remaining_time);
+    }
 
-      return t != 1.0f;
-    });
-
+    auto new_end = std::remove_if(std::begin(blocks), std::end(blocks), [](const block& b) { return b.durability == 0; });
     blocks.erase(new_end, std::end(blocks));
+
+    {
+      vec2 normal;
+      auto t = sweep_aabb(ball_prev, player.shape, delta_position, normal);
+
+      if (t != 1.0)
+      {
+        const auto remaining_time = 1.0 - t;
+        b.shape.position = b.shape.position - (delta_position * remaining_time);
+
+        if (std::abs(normal.x) > 0.0) { b.velocity.x = -b.velocity.x; b.acceleration.x = -b.acceleration.x; delta_position.x = -delta_position.x; }
+        if (std::abs(normal.y) > 0.0) { b.velocity.y = -b.velocity.y; b.acceleration.y = -b.acceleration.y; delta_position.y = -delta_position.y; }
+
+        b.shape.position = b.shape.position + (delta_position * remaining_time);
+      }
+    }
 
     SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(renderer);
