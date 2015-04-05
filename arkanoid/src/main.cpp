@@ -11,6 +11,7 @@ namespace
 const auto screen_width = 640;
 const auto screen_height = 480;
 const auto screen_title = "Arkanoid";
+const auto move_speed = 500;
 
 template<typename T> T clamp(T value, T min, T max)
 {
@@ -21,13 +22,6 @@ struct vec2
 {
   double x;
   double y;
-
-  vec2& operator+=(vec2 vec)
-  {
-    x += vec.x;
-    y += vec.y;
-    return *this;
-  }
 };
 
 vec2 operator-(vec2 vec) { return{ -vec.x, -vec.y }; }
@@ -87,29 +81,17 @@ double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
   }
 }
 
-struct block
-{
-  aabb shape;
-
-  void draw(SDL_Renderer *renderer)
-  {
-    const SDL_Rect rect = { (int)shape.position.x, (int)shape.position.y, shape.width, shape.height };
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0xFF, 0x00);
-    SDL_RenderFillRect(renderer, &rect);
-  }
-};
-
-struct ball
+struct moveable_box
 {
   aabb shape;
   vec2 velocity; // Pixels per second.
-  vec2 acceleration;
+  vec2 acceleration; // Pixel per second square
 
   void update(std::chrono::milliseconds elapsed)
   {
     const auto elapsed_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(elapsed).count();
-    velocity += acceleration * elapsed_seconds;
-    shape.position += velocity * elapsed_seconds;
+    velocity = velocity + acceleration * elapsed_seconds;
+    shape.position = shape.position + velocity * elapsed_seconds;
   }
 
   void draw(SDL_Renderer *renderer)
@@ -120,49 +102,9 @@ struct ball
   }
 };
 
-struct player_pallet
-{
-  aabb shape;
-  vec2 velocity; // Pixels per second.
-
-  static const auto move_speed = 500;
-
-  void on_keydown(SDL_KeyboardEvent key_event)
-  {
-    if (key_event.repeat) { return; }
-
-    switch (key_event.keysym.sym)
-    {
-      case SDLK_LEFT: velocity.x -= move_speed; break;
-      case SDLK_RIGHT: velocity.x += move_speed; break;
-    }
-  }
-
-  void on_keyup(SDL_KeyboardEvent key_event)
-  {
-    if (key_event.repeat) { return; }
-
-    switch (key_event.keysym.sym)
-    {
-      case SDLK_LEFT: velocity.x += move_speed; break;
-      case SDLK_RIGHT: velocity.x -= move_speed; break;
-    }
-  }
-
-  void update(std::chrono::milliseconds elapsed)
-  {
-    const auto elapsed_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(elapsed).count();
-    shape.position += velocity * elapsed_seconds;
-    shape.position.x = clamp(shape.position.x, 0.0, (double)screen_width - shape.width);
-  }
-
-  void draw(SDL_Renderer *renderer)
-  {
-    const SDL_Rect rect = { (int)shape.position.x, (int)shape.position.y, shape.width, shape.height };
-    SDL_SetRenderDrawColor(renderer, 0x00, 0xFF, 0x00, SDL_ALPHA_OPAQUE);
-    SDL_RenderFillRect(renderer, &rect);
-  }
-};
+using block = moveable_box;
+using ball = moveable_box;
+using player_pallet = moveable_box;
 
 std::vector<block> make_blocks(SDL_Rect blocks_area, int num_blocks_x, int num_blocks_y, int block_padding)
 {
@@ -177,7 +119,7 @@ std::vector<block> make_blocks(SDL_Rect blocks_area, int num_blocks_x, int num_b
     auto pos_x = blocks_area.x;
     for (auto i = 0; i < num_blocks_x; ++i)
     {
-      blocks.push_back({ { { pos_x + block_padding, pos_y + block_padding }, block_width, block_height } });
+      blocks.push_back({ { { pos_x + block_padding, pos_y + block_padding }, block_width, block_height }, { 0.0, 0.0 }, { 0.0, 0.0 } });
       pos_x += block_width + (2 * block_padding);
     }
     pos_y += block_height + (2 * block_padding);
@@ -203,7 +145,7 @@ int main(int, char *[])
   if (renderer == NULL) { return 2; }
 
   auto blocks = make_blocks({ 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 4, 4, 2);
-  player_pallet player = { { { 2 * screen_width / 5, screen_height - 10 }, screen_width / 5, 8 }, { 0, 0 } };
+  player_pallet player = { { { 2 * screen_width / 5, screen_height - 10 }, screen_width / 5, 8 }, { 0.0, 0.0 }, { 0.0, 0.0 } };
 
   ball b = { { { screen_width / 2 + 5, screen_height - 20 }, 10, 10 }, { 50, -50 }, { 5, -5 } };
 
@@ -215,15 +157,16 @@ int main(int, char *[])
     SDL_Event e;
     while (SDL_PollEvent(&e))
     {
-      switch (e.type)
+      if (e.type == SDL_QUIT)
       {
-        case SDL_QUIT: must_close = true; break;
-        case SDL_KEYDOWN:
-          player.on_keydown(e.key);
-          break;
-        case SDL_KEYUP:
-          player.on_keyup(e.key);
-          break;
+        must_close = true;
+      }
+      else if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP)
+      {
+        if (e.key.repeat) { continue; }
+
+        if (e.key.keysym.sym == SDLK_LEFT) { player.velocity.x += (e.type == SDL_KEYDOWN) ? -move_speed : move_speed; }
+        else if (e.key.keysym.sym == SDLK_RIGHT) { player.velocity.x += (e.type == SDL_KEYDOWN) ? move_speed : -move_speed; }
       }
     }
 
