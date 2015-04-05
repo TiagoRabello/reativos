@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <memory>
 #include <vector>
 
 const auto screen_width = 640;
@@ -78,11 +79,26 @@ double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
   }
 }
 
+#include <cassert>
+
+std::shared_ptr<SDL_Texture> load_texture(SDL_Renderer *renderer, const char *file)
+{
+  auto surface = SDL_LoadBMP(file);
+  auto texture = SDL_CreateTextureFromSurface(renderer, surface);
+
+  assert(surface && texture);
+
+  SDL_FreeSurface(surface);
+
+  return std::shared_ptr<SDL_Texture>{ texture, SDL_DestroyTexture };
+}
+
 struct moveable_box
 {
   aabb shape;
   vec2 velocity; // Pixels per second.
   vec2 acceleration; // Pixel per second square
+  std::shared_ptr<SDL_Texture> texture;
 
   void update(std::chrono::milliseconds elapsed)
   {
@@ -94,8 +110,7 @@ struct moveable_box
   void draw(SDL_Renderer *renderer)
   {
     const SDL_Rect rect = { (int)shape.position.x, (int)shape.position.y, shape.width, shape.height };
-    SDL_SetRenderDrawColor(renderer, 0x55, 0x55, 0x55, SDL_ALPHA_OPAQUE);
-    SDL_RenderFillRect(renderer, &rect);
+    SDL_RenderCopy(renderer, texture.get(), nullptr, &rect);
   }
 };
 
@@ -107,9 +122,11 @@ struct block : moveable_box
   int durability;
 };
 
-std::vector<block> make_blocks(SDL_Rect blocks_area, int num_blocks_x, int num_blocks_y, int block_padding)
+std::vector<block> make_blocks(SDL_Renderer *renderer, SDL_Rect blocks_area, int num_blocks_x, int num_blocks_y, int block_padding)
 {
   std::vector<block> blocks;
+
+  auto texture = load_texture(renderer, "assets/block_sprites.bmp");
 
   const auto block_width = (blocks_area.w / num_blocks_x) - (2 * block_padding);
   const auto block_height = (blocks_area.h / num_blocks_y) - (2 * block_padding);
@@ -125,6 +142,7 @@ std::vector<block> make_blocks(SDL_Rect blocks_area, int num_blocks_x, int num_b
       b.velocity = { 0.0, 0.0 };
       b.acceleration = { 0.0, 0.0 };
       b.durability = 1;
+      b.texture = texture;
 
       blocks.push_back(b);
       pos_x += block_width + (2 * block_padding);
@@ -149,10 +167,12 @@ int main(int, char *[])
   SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, 0);
   if (renderer == NULL) { return 2; }
 
-  auto blocks = make_blocks({ 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 6, 4, 2);
-  player_pallet player = { { { 2 * screen_width / 5, screen_height - 10 }, screen_width / 5, 8 }, { 0.0, 0.0 }, { 0.0, 0.0 } };
+  auto player_texture = load_texture(renderer, "assets/player_sprite.bmp");
 
-  ball b = { { { screen_width / 2 + 5, screen_height - 20 }, 10, 10 }, { 50, -50 }, { 5, -5 } };
+  auto blocks = make_blocks(renderer, { 10, 10, screen_width - 20, (screen_height - 10) / 4 }, 6, 4, 2);
+  player_pallet player = { { { 2 * screen_width / 5, screen_height - 10 }, screen_width / 5, 8 }, { 0.0, 0.0 }, { 0.0, 0.0 }, player_texture };
+
+  ball b = { { { screen_width / 2 + 5, screen_height - 20 }, 10, 10 }, { 50, -50 }, { 5, -5 }, player_texture };
 
   auto prev_time = std::chrono::high_resolution_clock::now();
 

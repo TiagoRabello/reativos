@@ -58,4 +58,7 @@ IF( WIN32 )
 ADD_CUSTOM_COMMAND(TARGET ${APP_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SDL_DLL_PATH} ${SDL_DLL_NAME})
 
+add_custom_command(TARGET ${APP_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets assets)
+
 ENDIF( WIN32 )
