@@ -8,7 +8,7 @@
 
 const SDL_Rect game_area = { 120, 0, 400, 480 };
 const auto move_speed = 500;
-auto lifes = 3;
+auto player_lifes = 3;
 
 template<typename T> T clamp(T value, T min, T max)
 {
@@ -81,6 +81,7 @@ struct moveable_box
   vec2 velocity; // Pixels per second.
   vec2 acceleration; // Pixel per second square
   std::shared_ptr<SDL_Texture> texture;
+  SDL_Rect texture_area;
 
   void update(std::chrono::milliseconds elapsed)
   {
@@ -91,7 +92,7 @@ struct moveable_box
   void draw(SDL_Renderer *renderer)
   {
     const SDL_Rect rect = { (int)shape.position.x, (int)shape.position.y, shape.width, shape.height };
-    SDL_RenderCopy(renderer, texture.get(), nullptr, &rect);
+    SDL_RenderCopy(renderer, texture.get(), &texture_area, &rect);
   }
 };
 using ball = moveable_box;
@@ -128,6 +129,7 @@ std::vector<block> make_blocks(SDL_Renderer *renderer, SDL_Rect blocks_area, int
       b.acceleration = { 0.0, 0.0 };
       b.durability = 1;
       b.texture = texture;
+      b.texture_area = { (j % 8) * 16, 0, 16, 8 };
 
       blocks.push_back(b);
       pos_x += block_width + (2 * block_padding);
@@ -162,14 +164,16 @@ int main(int, char *[])
 
   auto player_texture = load_texture(renderer, "assets/player_sprite.bmp");
 
-  auto blocks = make_blocks(renderer, { game_area.x + 10, game_area.y + 10, game_area.w - 20, (game_area.h - 10) / 4 }, 10, 5, 0);
+  auto blocks = make_blocks(renderer, { game_area.x + 10, game_area.y + 10, game_area.w - 20, (game_area.h - 10) / 4 }, 10, 6, 0);
   player_pallet player;
   player.shape = { { game_area.x + 2 * game_area.w / 5, game_area.y + game_area.h - 10 }, game_area.w / 5, 8 };
   player.velocity = { 0.0, 0.0 };
   player.acceleration = { 0.0, 0.0 };
   player.texture = player_texture;
+  player.texture_area = { 0, 0, 32, 8 };
 
-  ball b = { { { game_area.x + game_area.w / 2 + 5, game_area.y + game_area.h - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture };
+  ball b = { { { game_area.x + game_area.w / 2 + 5, game_area.y + game_area.h - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture, { 0, 0, 32, 8 } };
+  const auto original_ball = b;
 
   auto prev_time = std::chrono::high_resolution_clock::now();
 
@@ -209,10 +213,8 @@ int main(int, char *[])
     }
     if (b.shape.position.y > game_area.h + game_area.y)
     {
-      --lifes;
-      b = { { { game_area.x + game_area.w / 2 + 5, game_area.y + game_area.h - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture };
-
-      if (lifes == 0) { break; }
+      if (--player_lifes == 0) { break; }
+      b = original_ball;
     }
     if (b.shape.position.y < game_area.y)
     {
