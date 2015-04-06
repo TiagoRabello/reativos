@@ -9,24 +9,20 @@
 const SDL_Rect game_area = { 120, 0, 400, 480 };
 const auto move_speed = 500;
 auto player_lifes = 3;
-
 template<typename T> T clamp(T value, T min, T max)
 {
   return std::max(min, std::min(max, value));
 }
-
 struct vec2
 {
   double x;
   double y;
 };
-
 vec2 operator-(vec2 vec) { return{ -vec.x, -vec.y }; }
 vec2 operator*(vec2 vec, double factor) { return{ vec.x * factor, vec.y * factor }; }
 vec2 operator*(double factor, vec2 vec) { return vec * factor; }
 vec2 operator+(vec2 lhs, vec2 rhs) { return{ lhs.x + rhs.x, lhs.y + rhs.y }; }
 vec2 operator-(vec2 lhs, vec2 rhs) { return{ lhs.x - rhs.x, lhs.y - rhs.y }; }
-
 struct aabb
 {
   vec2 position;
@@ -35,8 +31,8 @@ struct aabb
 };
 double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
 {
-  const vec2 box1_wh = { box1.width, box1.height };
-  const vec2 box2_wh = { box2.width, box2.height };
+  const vec2 box1_wh = { (double)box1.width, (double)box1.height };
+  const vec2 box2_wh = { (double)box2.width, (double)box2.height };
 
   vec2 inv_entry = box2.position - (box1.position + box1_wh);
   vec2 inv_exit = (box2.position + box2_wh) - box1.position;
@@ -53,17 +49,13 @@ double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
   auto entry_time = std::max(entry.x, entry.y);
   auto exit_time = std::min(exit.x, exit.y);
 
-  if (entry_time > exit_time || entry.x < 0.0f && entry.y < 0.0f || entry.x > 1.0f || entry.y > 1.0f)
-  {
+  if (entry_time > exit_time || entry.x < 0.0f && entry.y < 0.0f || entry.x > 1.0f || entry.y > 1.0f) {
     return 1.0f;
   }
-  else // if there was a collision
-  {
+  else {
     normal = { 0.0, 0.0 };
-
     if (entry.x > entry.y) { normal.x = (inv_entry.x < 0.0f) ? 1.0f : -1.0f; }
     else                   { normal.y = (inv_entry.y < 0.0f) ? 1.0f : -1.0f; }
-
     return entry_time;
   }
 }
@@ -72,7 +64,6 @@ std::shared_ptr<SDL_Texture> load_texture(SDL_Renderer *renderer, const char *fi
   auto surface = SDL_LoadBMP(file);
   auto texture = SDL_CreateTextureFromSurface(renderer, surface);
   SDL_FreeSurface(surface);
-
   return std::shared_ptr<SDL_Texture>{ texture, SDL_DestroyTexture };
 }
 struct moveable_box
@@ -95,7 +86,6 @@ struct moveable_box
     SDL_RenderCopy(renderer, texture.get(), &texture_area, &rect);
   }
 };
-using ball = moveable_box;
 struct player_pallet : moveable_box
 {
   void update(std::chrono::milliseconds elapsed)
@@ -104,10 +94,8 @@ struct player_pallet : moveable_box
     shape.position.x = clamp(shape.position.x, (double)game_area.x , (double)game_area.w + game_area.x - shape.width);
   }
 };
-struct block : moveable_box
-{
-  int durability;
-};
+struct block : moveable_box { int durability; };
+using ball = moveable_box;
 std::vector<block> make_blocks(SDL_Renderer *renderer, SDL_Rect blocks_area, int num_blocks_x, int num_blocks_y, int block_padding)
 {
   std::vector<block> blocks;
@@ -118,16 +106,14 @@ std::vector<block> make_blocks(SDL_Renderer *renderer, SDL_Rect blocks_area, int
   const auto block_height = (blocks_area.h / num_blocks_y) - (2 * block_padding);
 
   auto pos_y = blocks_area.y;
-  for (auto j = 0; j < num_blocks_y; ++j)
-  {
+  for (auto j = 0; j < num_blocks_y; ++j) {
     auto pos_x = blocks_area.x;
-    for (auto i = 0; i < num_blocks_x; ++i)
-    {
+    for (auto i = 0; i < num_blocks_x; ++i) {
       block b;
-      b.shape = { { pos_x + block_padding, pos_y + block_padding }, block_width, block_height };
+      b.shape = { { (double)pos_x + block_padding, (double)pos_y + block_padding }, block_width, block_height };
+      b.durability = 1;
       b.velocity = { 0.0, 0.0 };
       b.acceleration = { 0.0, 0.0 };
-      b.durability = 1;
       b.texture = texture;
       b.texture_area = { (j % 8) * 16, 0, 16, 8 };
 
@@ -151,45 +137,38 @@ void process_collision(ball &b, vec2 delta_position, double t, vec2 normal)
 }
 int main(int, char *[])
 {
-  int err = SDL_Init(SDL_INIT_EVERYTHING);
-  if (err != 0) { return err; }
+  if (SDL_Init(SDL_INIT_EVERYTHING)) { return -1; }
 
-  std::unique_ptr<SDL_Window, void(*)(SDL_Window*)> window = {
+  auto window = std::unique_ptr<SDL_Window, void(*)(SDL_Window*)>{
     SDL_CreateWindow("Arkanoid", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_SHOWN)
     , SDL_DestroyWindow
   };
   if (window == nullptr) { return 1; }
 
-  std::unique_ptr<SDL_Renderer, void(*)(SDL_Renderer*)> renderer = { SDL_CreateRenderer(window.get(), -1, 0), SDL_DestroyRenderer };
+  auto renderer = std::unique_ptr<SDL_Renderer, void(*)(SDL_Renderer*)>{ SDL_CreateRenderer(window.get(), -1, 0), SDL_DestroyRenderer };
   if (renderer == nullptr) { return 2; }
 
   auto player_texture = load_texture(renderer.get(), "assets/player_sprite.bmp");
 
   auto blocks = make_blocks(renderer.get(), { game_area.x + 10, game_area.y + 10, game_area.w - 20, (game_area.h - 10) / 4 }, 10, 6, 0);
-  player_pallet player;
-  player.shape = { { game_area.x + 2 * game_area.w / 5, game_area.y + game_area.h - 22 }, 78, 18 };
+  player_pallet player{};
+  player.shape = { { game_area.x + 2.0 * game_area.w / 5, game_area.y + game_area.h - 22.0 }, 78, 18 };
   player.velocity = { 0.0, 0.0 };
   player.acceleration = { 0.0, 0.0 };
   player.texture = player_texture;
   player.texture_area = { 0, 0, 52, 12 };
 
-  ball b = { { { game_area.x + game_area.w / 2 + 5, game_area.y + game_area.h - 20 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture, { 0, 0, 32, 8 } };
+  ball b = { { { game_area.x + game_area.w / 2.0 + 5, game_area.y + game_area.h - 20.0 }, 10, 10 }, { 100, -100 }, { 5, -5 }, player_texture, { 0, 0, 32, 8 } };
   const auto original_ball = b;
 
   auto prev_time = std::chrono::high_resolution_clock::now();
 
   bool must_close = false;
-  while (must_close == false)
-  {
+  while (must_close == false) {
     SDL_Event e;
-    while (SDL_PollEvent(&e))
-    {
-      if (e.type == SDL_QUIT)
-      {
-        must_close = true;
-      }
-      else if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP)
-      {
+    while (SDL_PollEvent(&e)) {
+      if (e.type == SDL_QUIT) { must_close = true; }
+      else if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
         if (e.key.repeat) { continue; }
 
              if (e.key.keysym.sym == SDLK_LEFT) { player.velocity.x += (e.type == SDL_KEYDOWN) ? -move_speed : move_speed; }
@@ -206,19 +185,16 @@ int main(int, char *[])
     b.update(elapsed);
     auto delta_position = b.shape.position - ball_prev.position;
 
-    if (b.shape.position.x > game_area.w + game_area.x || b.shape.position.x < game_area.x)
-    {
+    if (b.shape.position.x > game_area.w + game_area.x || b.shape.position.x < game_area.x) {
       b.shape.position.x = clamp(b.shape.position.x, (double)game_area.x, (double)game_area.w + game_area.x);
       b.velocity.x = -b.velocity.x;
       b.acceleration.x = -b.acceleration.x;
     }
-    if (b.shape.position.y > game_area.h + game_area.y)
-    {
+    if (b.shape.position.y > game_area.h + game_area.y) {
       if (--player_lifes == 0) { break; }
       b = original_ball;
     }
-    if (b.shape.position.y < game_area.y)
-    {
+    if (b.shape.position.y < game_area.y) {
       b.shape.position.y = game_area.y;
       b.velocity.y = -b.velocity.y;
       b.acceleration.y = -b.acceleration.y;
@@ -227,26 +203,21 @@ int main(int, char *[])
     vec2 closest_normal = {};
     double closest_t = 1.0;
     block *closest_block = nullptr;
-    for (auto&& block : blocks)
-    {
+    for (auto&& block : blocks) {
       auto t = sweep_aabb(ball_prev, block.shape, delta_position * closest_t, closest_normal);
-      if (t < closest_t)
-      {
+      if (t < closest_t) {
         closest_t = t;
         closest_block = &block;
       }
     }
     {
       auto t = sweep_aabb(ball_prev, player.shape, delta_position * closest_t, closest_normal);
-      if (t < closest_t)
-      {
+      if (t < closest_t) {
         closest_t = t;
         closest_block = nullptr;
       }
     }
-
-    if (closest_t != 1.0)
-    {
+    if (closest_t != 1.0) {
       process_collision(b, delta_position, closest_t, closest_normal);
       if (closest_block != nullptr) { --(closest_block->durability); }
     }
@@ -266,8 +237,6 @@ int main(int, char *[])
 
     SDL_RenderPresent(renderer.get());
   }
-
   SDL_Quit();
-
   return 0;
 }
