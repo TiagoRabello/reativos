@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -49,7 +51,7 @@ double sweep_aabb(aabb box1, aabb box2, vec2 velocity, vec2 &normal)
   auto entry_time = std::max(entry.x, entry.y);
   auto exit_time = std::min(exit.x, exit.y);
 
-  if (entry_time > exit_time || entry.x < 0.0f && entry.y < 0.0f || entry.x > 1.0f || entry.y > 1.0f) {
+  if (entry_time > exit_time || (entry.x < 0.0f && entry.y < 0.0f) || entry.x > 1.0f || entry.y > 1.0f) {
     return 1.0f;
   }
   else {
@@ -176,6 +178,9 @@ int main(int, char *[])
       }
     }
 
+    if (blocks.empty()) { std::cout << "Voce venceu! =)" << std::endl; break; }
+    if (player_lifes == 0) { std::cout << "Voce perdeu... =(" << std::endl; break; }
+
     const auto curr_time = std::chrono::high_resolution_clock::now();
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - prev_time);
     prev_time = curr_time;
@@ -191,7 +196,7 @@ int main(int, char *[])
       b.acceleration.x = -b.acceleration.x;
     }
     if (b.shape.position.y > game_area.h + game_area.y) {
-      if (--player_lifes == 0) { break; }
+      --player_lifes;
       b = original_ball;
     }
     if (b.shape.position.y < game_area.y) {
