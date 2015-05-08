@@ -1,0 +1,297 @@
+#include "sdl.ceu"
+
+input void SDL_REDRAW;
+input void SDL_QUIT;
+input _SDL_KeyboardEvent *SDL_KEYDOWN;
+input _SDL_KeyboardEvent *SDL_KEYUP;
+
+var float block_padding = 2;
+
+var _SDL_Rect game_area;
+    game_area.x = 120;
+    game_area.y = 0;
+    game_area.w = 400;
+    game_area.h = 480;
+
+var _SDL_Window* win;
+    finalize
+        win = _SDL_CreateWindow("Arkanoid", _SDL_WINDOWPOS_CENTERED, _SDL_WINDOWPOS_CENTERED, 640, 480, _SDL_WINDOW_SHOWN);
+    with
+        _SDL_DestroyWindow(win);
+    end
+
+native do
+    SDL_Renderer* ren = NULL;
+end
+    finalize
+        _ren = _SDL_CreateRenderer(win, -1, 0);
+    with
+        _SDL_DestroyRenderer(_ren);
+    end
+
+class PlayerPallet with
+    var int   shape_width;
+    var int   shape_height;
+    var float shape_pos_x;
+    var float shape_pos_y;
+    var float vel_x;
+    var float acc_x;
+    var int   life;
+    var _SDL_Rect game_area;
+    var float move_speed;
+do
+    par do
+        loop do
+            var _SDL_KeyboardEvent* key = await SDL_KEYDOWN;
+
+            if (key:repeat == false) then
+                if (key:keysym.sym == _SDLK_LEFT) then
+                    this.vel_x = this.vel_x - this.move_speed;
+                else/if (key:keysym.sym == _SDLK_RIGHT) then
+                    this.vel_x = this.vel_x + this.move_speed;
+                end
+            end
+        end
+    with
+        loop do
+            var _SDL_KeyboardEvent* key = await SDL_KEYUP;
+
+            if (key:repeat == false) then
+                if (key:keysym.sym == _SDLK_LEFT) then
+                    this.vel_x = this.vel_x + this.move_speed;
+                else/if (key:keysym.sym == _SDLK_RIGHT) then
+                    this.vel_x = this.vel_x - this.move_speed;
+                end
+            end
+        end
+    with
+        loop do
+            await 1600us;
+
+            this.vel_x = this.vel_x + this.acc_x * 1.6 / 1000.0;
+            this.shape_pos_x = this.shape_pos_x + this.vel_x * 1.6 / 1000.0;
+
+            if (this.shape_pos_x < this.game_area.x) then
+                this.shape_pos_x = this.game_area.x;
+            else/if (this.shape_pos_x > this.game_area.w + this.game_area.x - this.shape_width) then
+                this.shape_pos_x = this.game_area.w + this.game_area.x - this.shape_width;
+            end
+        end
+    with
+        loop do
+            await SDL_REDRAW;
+
+            var _SDL_Rect rect;
+                rect.x = this.shape_pos_x;
+                rect.y = this.shape_pos_y;
+                rect.w = this.shape_width;
+                rect.h = this.shape_height;
+
+            _SDL_SetRenderDrawColor(_ren, 0xAA, 0xAA, 0xAA, _SDL_ALPHA_OPAQUE);
+            _SDL_RenderFillRect(_ren, &rect);
+        end
+    end
+end
+
+class Block with
+    var _SDL_Rect shape;
+    var int r;
+    var int g;
+    var int b;
+
+    var bool alive;
+do
+    this.alive = true;
+
+    loop do
+        await SDL_REDRAW;
+
+        if (this.alive) then
+            _SDL_SetRenderDrawColor(_ren, this.r, this.g, this.b, _SDL_ALPHA_OPAQUE);
+            _SDL_RenderFillRect(_ren, &shape);
+        end
+    end
+end
+
+class Ball with
+    var int   shape_width;
+    var int   shape_height;
+    var float shape_pos_x;
+    var float shape_pos_y;
+    var float vel_x;
+    var float vel_y;
+    var float acc_x;
+    var float acc_y;
+    var _SDL_Rect game_area;
+
+    var PlayerPallet& player;
+    var Block[] blocks;
+
+do
+    par do
+        loop do
+            await 160us;
+
+            this.vel_x = this.vel_x + this.acc_x * 1.6 / 10000.0;
+            this.vel_y = this.vel_y + this.acc_y * 1.6 / 10000.0;
+
+            this.shape_pos_x = this.shape_pos_x + this.vel_x * 1.6 / 10000.0;
+            this.shape_pos_y = this.shape_pos_y + this.vel_y * 1.6 / 10000.0;
+
+            if (this.shape_pos_x > this.game_area.w + this.game_area.x) then
+                this.shape_pos_x = this.game_area.w + this.game_area.x;
+                this.vel_x = -this.vel_x;
+                this.acc_x = -this.acc_x;
+            else/if (this.shape_pos_x < this.game_area.x) then
+                this.shape_pos_x = this.game_area.x;
+                this.vel_x = -this.vel_x;
+                this.acc_x = -this.acc_x;
+            end
+
+            if (this.shape_pos_y > this.game_area.h + game_area.y) then
+                player.life = player.life - 1;
+
+                this.shape_width = 10;
+                this.shape_height = 10;
+                this.shape_pos_x = this.game_area.x + this.game_area.w / 2.0 + 5;
+                this.shape_pos_y = this.game_area.y + this.game_area.h - 20.0;
+                this.vel_x = 100;
+                this.vel_y = -100;
+                this.acc_x = 0;
+                this.acc_y = 0;
+            else/if (this.shape_pos_y < this.game_area.y) then
+                this.shape_pos_y = this.game_area.y;
+                this.vel_y = -this.vel_y;
+                this.acc_y = -this.acc_y;
+            end
+
+            var _SDL_Rect rect;
+                rect.x = this.shape_pos_x;
+                rect.y = this.shape_pos_y;
+                rect.w = this.shape_width;
+                rect.h = this.shape_height;
+
+            loop i in 60 do
+                if (blocks[i].alive) then
+                    if _SDL_HasIntersection(&blocks[i].shape, &rect) then
+                        if ((this.shape_pos_x > blocks[i].shape.x) and (this.shape_pos_x + this.shape_width < blocks[i].shape.x + blocks[i].shape.w)) then
+                            this.vel_y = -this.vel_y;
+                        else/if ((this.shape_pos_y > blocks[i].shape.y) and (this.shape_pos_y + this.shape_height < blocks[i].shape.y + blocks[i].shape.h)) then
+                            this.vel_x = -this.vel_x;
+                        else
+                            this.vel_x = -this.vel_x;
+                            this.vel_y = -this.vel_y;
+
+                            this.acc_x = -this.acc_x;
+                            this.acc_y = -this.acc_y;
+                        end
+
+                        blocks[i].alive = false;
+                    end
+                end;
+            end
+
+
+            var _SDL_Rect rect_player;
+                rect_player.x = player.shape_pos_x;
+                rect_player.y = player.shape_pos_y;
+                rect_player.w = player.shape_width;
+                rect_player.h = player.shape_height;
+
+            if _SDL_HasIntersection(&rect_player, &rect) then
+                this.shape_pos_y = rect_player.y - rect_player.h - 2;
+                this.vel_y = -this.vel_y;
+
+                this.acc_x = -this.acc_x;
+                this.acc_y = -this.acc_y;
+            end
+
+        end
+    with
+        loop do
+            await SDL_REDRAW;
+
+            var _SDL_Rect rect;
+                rect.x = this.shape_pos_x;
+                rect.y = this.shape_pos_y;
+                rect.w = this.shape_width;
+                rect.h = this.shape_height;
+
+            _SDL_SetRenderDrawColor(_ren, 0xAA, 0xAA, 0xAA, _SDL_ALPHA_OPAQUE);
+            _SDL_RenderFillRect(_ren, &rect);
+        end
+    end
+end
+
+par/or do
+    await SDL_QUIT;
+    _SDL_Quit();
+with
+    loop do
+        par/or do
+            loop do
+                await SDL_REDRAW;
+                _SDL_SetRenderDrawColor(_ren, 0x00, 0x00, 0x00, _SDL_ALPHA_OPAQUE);
+                _SDL_RenderClear(_ren);
+
+                _SDL_SetRenderDrawColor(_ren, 0x00, 0x00, 0xBB, _SDL_ALPHA_OPAQUE);
+                _SDL_RenderFillRect(_ren, &game_area);
+            end
+        with
+            var int i = 0;
+            var Block[60] blocks with
+                this.shape.w = ((game_area.w - 20) / 10) - (2 * block_padding);
+                this.shape.h = (((game_area.h - 10) / 4) / 6) - (2 * block_padding);
+
+                this.shape.x = game_area.x + 10 + ((i % 10) * (this.shape.w + (2 * block_padding)));
+                this.shape.y = game_area.y + 10 + ((i / 10) * (this.shape.h + (2 * block_padding)));
+
+                this.r = 0xAA;
+                this.g = ((i / 10) / 6.0) * 0xAA;
+                this.b = 0x00;
+
+                i = i + 1;
+            end;
+
+            var PlayerPallet player with
+                this.shape_width = 78;
+                this.shape_height = 18;
+                this.shape_pos_x = game_area.x + 2.0 * game_area.w / 5;
+                this.shape_pos_y = game_area.y + game_area.h - 22.0;
+
+                this.vel_x = 0;
+                this.acc_x = 0;
+
+                this.life = 3;
+                this.game_area = game_area;
+                this.move_speed = 500;
+            end;
+
+            var Ball ball with
+                this.player = player;
+                this.blocks = blocks;
+                this.game_area = game_area;
+
+                this.shape_width = 10;
+                this.shape_height = 10;
+                this.shape_pos_x = game_area.x + game_area.w / 2.0 + 5;
+                this.shape_pos_y = game_area.y + game_area.h - 40.0;
+                this.vel_x = 100;
+                this.vel_y = -100;
+                this.acc_x = 0;
+                this.acc_y = 0;
+            end;
+
+            await FOREVER;
+        with
+            loop do
+                await SDL_REDRAW;
+                _SDL_RenderPresent(_ren);
+            end
+        with
+            var _SDL_KeyboardEvent* key = await SDL_KEYDOWN until key:keysym.sym == _SDLK_r;
+        end
+    end
+end
+
+escape 0;
