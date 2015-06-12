@@ -1,0 +1,83 @@
+#include "/home/terra/TerraNet_v0.1/terra/TerraNet.defs"
+
+pktype usrMsg from radioMsg with
+	var ubyte[1] d8;
+	var ushort[1] d16;
+end
+var usrMsg msgRadio;
+msgRadio.d8[0] = 0;
+
+var ushort nodeId    = getNodeId();
+var ushort fatherId  = 1;
+var ubyte  nodeDepth = 0;
+
+// Builds Tree
+if nodeId != 11 then
+	msgRadio = await RECEIVE;
+
+	fatherId = msgRadio.source;
+	nodeDepth = msgRadio.d8[0];
+end
+
+msgRadio.type   = 0;
+msgRadio.source = nodeId;
+msgRadio.target = BROADCAST;
+msgRadio.d8[0]  = nodeDepth + 1;
+emit SEND(msgRadio);
+await SEND_DONE;
+
+var ubyte stat = qClear();
+emit LEDS(qSize());
+msgRadio.d8[0] = 0;
+
+// Exchange Data
+par do
+	var usrMsg msgRadio;
+	loop do
+		await 15s;
+		emit REQ_TEMP();
+		var ushort temp = await TEMP;
+		msgRadio.source = nodeId;
+		msgRadio.type   = 1;
+		msgRadio.d16[0] = temp;
+		inc msgRadio.d8[0];
+		stat = qPut(msgRadio);
+	end
+with
+	var usrMsg msgRadio;
+	var usrMsg msgAck;
+	loop do
+		msgRadio = await RECEIVE(1);
+		stat = qPut(msgRadio);
+	end
+with
+	var usrMsg msgRadio;
+	var ubyte ack;
+	loop do
+		await Q_READY;
+		loop do
+			if (qSize() == 0) then
+				break;
+			end
+			stat = qGet(msgRadio);
+
+			msgRadio.target = fatherId;
+
+			loop do
+				emit SEND_ACK(msgRadio);
+				ack = await SEND_DONE_ACK;
+				if (ack == TRUE) then
+					break;
+				else
+					await (10 * (random() % 100))ms;
+				end
+			end
+		end
+	end
+with
+	loop do
+		await 20ms;
+		emit LEDS(qSize());
+	end
+	
+end
